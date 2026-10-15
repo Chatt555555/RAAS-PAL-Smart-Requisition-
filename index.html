@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบสร้างใบเบิกสินค้าคลัง (Smart Requisition System)</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Fonts (Sarabun for Thai, Space Mono for Receipt numbers) -->
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <!-- Load QRCode.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+ <style>
+        body {
+            font-family: 'Sarabun', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .font-mono-receipt {
+            font-family: 'Space Mono', monospace;
+        }
+
+        /* ตกแต่ง Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+ /* การตั้งค่าสำหรับการปริ้นต์ลงกระดาษเทอร์มอล 80mm */
+        @media print {
+            body, html {
+                background-color: white !important;
+                margin: 0;
+                padding: 0;
+                width: 100%;
+                height: 100%;
+            }
+            /* ซ่อนฝั่งฟอร์ม */
+            #form-section, #toast-container, .no-print {
+                display: none !important;
+            }
+            /* จัดฝั่งบิลให้เต็มหน้าและเอาขอบออก */
+            #preview-section {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background-color: white !important;
+                display: block !important;
+                overflow: visible !important;
+            }
+            .receipt-paper {
+               box-shadow: none !important;
+                border: none !important;
+                width: 80mm !important; /* บังคับขนาด 80mm */
+                margin: 0 auto !important;
+                padding: 0 !important;
+                padding-top: 0 !important;
+            }
+            @page {
+                margin: 0;
+                size: 80mm auto; /* ตั้งค่ากระดาษม้วน */
+            }
+        }
+    </style>
+  </head>
+<body class="h-screen flex flex-col lg:flex-row overflow-hidden">
+
+    <div id="form-section" class="w-full lg:w-2/3 h-full overflow-y-auto bg-gray-50 p-4 md:p-8 relative">
+        
+        <!-- Header ฝั่งฟอร์ม -->
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+                    ระบบสร้างใบเบิกสินค้าคลัง
+                </h1>
+                <p class="text-sm text-gray-500 mt-1">Smart Requisition System (80mm Output)</p>
+            </div>
+           <button onclick="window.print()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl shadow-lg shadow-indigo-200 font-semibold transition-all flex items-center gap-2 w-full md:w-auto justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a2 2 0 002 2h6a2 2 0 002-2v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a2 2 0 00-2-2H7a2 2 0 00-2 2zm8 0H7v3h6V4zm0 8H7v4h6v-4z" clip-rule="evenodd" /></svg>
+                ปริ้นต์ใบเบิก (Print)
+            </button>
+        </div>
+      <form id="reqForm" class="space-y-6 max-w-5xl mx-auto pb-20">
+            
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <h2 class="text-lg font-bold text-gray-700 mb-4 border-b pb-2">1. การตั้งค่า & โลโก้</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="border-2 border-dashed border-gray-200 rounded-xl p-4 bg-gray-50 flex items-center gap-4">
+                        <div class="w-16 h-16 bg-white border rounded-lg flex items-center justify-center overflow-hidden shrink-0 shadow-sm">
+                            <img id="logoPreviewForm" src="https://placehold.co/100x100/ffffff/4f46e5?text=LOGO" alt="Logo" class="max-w-full max-h-full object-contain">
+                        </div>
+                        <div class="flex-1">
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">อัปโหลดโลโก้บริษัท</label>
+                            <input type="file" id="logoUpload" accept="image/*" class="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition cursor-pointer">
+                        </div>
+                    </div>
+                    <div>
+                       <label class="block text-sm font-semibold text-gray-700 mb-1">ประเภทใบเบิก (Document Type)</label>
+                        <select id="in_docType" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border text-sm focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50" onchange="updatePreview()">
+                            <option value="ใบเบิก SPARE PART">ใบเบิก Spare part (อะไหล่)</option>
+                            <option value="ใบเบิก CONSUMABLE">ใบเบิก Consumable (สิ้นเปลือง)</option>
+                            <option value="ใบเบิก ROBOT">ใบเบิก Robot (หุ่นยนต์)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <h2 class="text-lg font-bold text-gray-700 mb-4 border-b pb-2">2. ข้อมูลเอกสาร (Document Info)</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Slip No.</label>
+                        <div class="flex">
+                            <input type="text" id="in_slipNo" class="w-full border-gray-300 rounded-l-lg shadow-sm p-2.5 border text-sm font-mono focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50" oninput="updatePreview()">
+                            <button type="button" onclick="generateSlipNo()" class="bg-indigo-100 px-4 rounded-r-lg border border-l-0 border-indigo-200 hover:bg-indigo-200 text-indigo-700 text-xs font-bold transition" title="สร้างเลขรันอัตโนมัติ">AUTO</button>
+                        </div>
+                    </div>
+                   <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Ticket No. (เลขอ้างอิง)</label>
+                        <input type="text" id="in_ticketNo" placeholder="เช่น TK-202610-88" class="w-full border-gray-300 rounded-lg shadow-sm p-2.5 border text-sm focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50" oninput="updatePreview()">
+                    </div>
+                  <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">วันที่ทำรายการ (Date)</label>
+                        <input type="datetime-local" id="in_date" class="w-full border-gray-300 rounded-lg shadow-sm p-2.5 border text-sm focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50" onchange="updatePreview()">
+                    </div>
+                   <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">ผู้ขอเบิก (Requestor)</label>
+                        <input type="text" id="in_requestor" placeholder="ชื่อพนักงานที่เบิก" class="w-full border-gray-300 rounded-lg shadow-sm p-2.5 border text-sm focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50" oninput="updatePreview()">
+                    </div>
+                  <div class="lg:col-span-2">
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">เจ้าหน้าที่ Inventory (Issuer)</label>
+                        <input type="text" id="in_issuer" placeholder="ชื่อผู้จ่ายของ / คลังสินค้า" class="w-full border-gray-300 rounded-lg shadow-sm p-2.5 border text-sm focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50" oninput="updatePreview()">
+                    </div>
+                </div>
+            </div>
+         <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <h2 class="text-lg font-bold text-gray-700 mb-4 border-b pb-2">3. ข้อมูลโครงการและเครื่อง (Project & Purpose)</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                    <div class="lg:col-span-2">
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">ชื่อโครงการ (Project Name)</label>
+                        <input type="text" id="in_project" placeholder="เช่น Warehouse Automation V.2" class="w-full border-gray-300 rounded-lg shadow-sm p-2.5 border text-sm focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50" oninput="updatePreview()">
+                    </div>
+                    <div>
+                       <label class="block text-sm font-semibold text-gray-700 mb-1">รหัสสาขา (Branch)</label>
+                        <input type="text" id="in_branch" placeholder="เช่น BR-01" class="w-full border-gray-300 rounded-lg shadow-sm p-2.5 border text-sm focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50" oninput="updatePreview()">
+                    </div>
+                  <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">รุ่นหุ่นยนต์ (Robot Model)</label>
+                        <input type="text" id="in_robotModel" placeholder="เช่น AGV-X1" class="w-full border-gray-300 rounded-lg shadow-sm p-2.5 border text-sm focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50" oninput="updatePreview()">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">S/N หุ่นยนต์</label>
+                        <input type="text" id="in_robotSN" placeholder="เช่น SN-9908" class="w-full border-gray-300 rounded-lg shadow-sm p-2.5 border text-sm font-mono focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50" oninput="updatePreview()">
+                    </div>
+                    <div>
+                      <label class="block text-sm font-semibold text-gray-700 mb-1">วัตถุประสงค์ (Purpose)</label>
+                        <select id="in_purpose" class="w-full border-gray-300 rounded-lg shadow-sm p-2.5 border text-sm focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50" onchange="updatePreview()">
+                            <option value="ซ่อมบำรุง (Repair)">ซ่อมบำรุง (Repair)</option>
+                            <option value="ส่งมอบโครงการ (Handover)">ส่งมอบโครงการ (Handover)</option>
+                            <option value="เครื่อง Demo / ทดสอบ">เครื่อง Demo / ทดสอบ</option>
+                            <option value="อื่นๆ (Others)">อื่นๆ (ระบุในหมายเหตุ)</option>
+                        </select>
+                    </div>
+                    <div>
+                       <label class="block text-sm font-semibold text-gray-700 mb-1">การรับประกัน (Warranty)</label>
+                        <select id="in_warranty" class="w-full border-gray-300 rounded-lg shadow-sm p-2.5 border text-sm focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50" onchange="updatePreview()">
+                            <option value="In-Warranty (เคลมได้)">In-Warranty (เคลมได้)</option>
+                            <option value="Out-of-Warranty (หมดประกัน)">Out-of-Warranty (หมดประกัน)</option>
+                            <option value="Chargeable (มีค่าใช้จ่าย)">Chargeable (มีค่าใช้จ่าย)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+         <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <div class="flex justify-between items-center mb-4 border-b pb-2">
+                    <h2 class="text-lg font-bold text-gray-700">4. รายการเบิก (Items)</h2>
+                </div>
+                
+                <div id="itemsContainer" class="space-y-3">
+                    <!-- Default 1st Item Row -->
+                    <div class="item-row grid grid-cols-12 gap-2 bg-indigo-50/50 p-3 rounded-xl border border-indigo-100 relative group transition-all hover:border-indigo-300">
+                        <div class="col-span-12 md:col-span-5">
+                            <label class="block text-[10px] font-bold text-gray-500 mb-1">ชื่อสินค้า (ITEM NAME)</label>
+                            <input type="text" class="item-name w-full border-gray-300 rounded-md p-2 text-sm focus:ring-indigo-500 focus:border-indigo-500 border" placeholder="เช่น เซ็นเซอร์ LIDAR V3" oninput="updatePreview()">
+                        </div>
+                        <div class="col-span-5 md:col-span-3">
+                            <label class="block text-[10px] font-bold text-gray-500 mb-1">รหัส (SKU)</label>
+                            <input type="text" class="item-sku w-full border-gray-300 rounded-md p-2 text-sm font-mono focus:ring-indigo-500 focus:border-indigo-500 border" placeholder="เช่น SN-LD-001" oninput="updatePreview()">
+                          </div>
+                        <div class="col-span-4 md:col-span-2">
+                            <label class="block text-[10px] font-bold text-gray-500 mb-1">จุดเก็บ (LOC)</label>
+                            <input type="text" class="item-loc w-full border-gray-300 rounded-md p-2 text-sm font-mono focus:ring-indigo-500 focus:border-indigo-500 border" placeholder="เช่น A1-02" oninput="updatePreview()">
+                        </div>
+                        <div class="col-span-3 md:col-span-2">
+                            <label class="block text-[10px] font-bold text-gray-500 mb-1 text-center">จำนวน</label>
+                            <input type="number" class="item-qty w-full border-gray-300 rounded-md p-2 text-sm text-center font-bold focus:ring-indigo-500 focus:border-indigo-500 border" value="1" min="1" oninput="updatePreview()">
+                        </div>
+                       <!-- Delete Button -->
+                        <button type="button" onclick="removeItem(this)" class="absolute -right-2 -top-2 bg-white hover:bg-red-500 text-red-500 hover:text-white rounded-full p-1.5 shadow-md border border-red-100 transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                        </button>
+                    </div>
+                </div>
+           <button type="button" onclick="addItem()" class="mt-4 w-full bg-white hover:bg-gray-50 text-indigo-600 font-bold py-3 rounded-xl border-2 border-dashed border-indigo-200 transition-colors text-sm flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>
+                    เพิ่มรายการสินค้า (Add Item)
+                </button>
+            </div>
+            
+        </form>
+    </div>
+   <div id="preview-section" class="w-full lg:w-1/3 h-full bg-slate-800 flex justify-center overflow-y-auto py-8 px-4 relative custom-scrollbar">
+        
+        <!-- กระดาษเทอร์มอล 80mm -->
+        <div class="receipt-paper bg-white p-4 shadow-2xl relative text-black leading-tight border border-gray-200 w-[302px] shrink-0 h-max">
+            
+            <!-- รอยหยักขอบกระดาษฉีก (โชว์เฉพาะจอ ไม่ปริ้นต์) -->
+            <div class="absolute -top-1 left-0 w-full h-2 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMCIgaGVpZ2h0PSI0Ij48cG9seWdvbiBwb2ludHM9IjAsNCA1LDAgMTAsNCAxMCw0IDAsNCIgZmlsbD0iI2ZmZiIvPjwvc3ZnPg==')] bg-repeat-x no-print"></div>
+
+            <!-- ส่วนหัวใบเสร็จ -->
+            <div class="text-center mb-3">
+                <div class="flex justify-center mb-2">
+                    <img id="out_logo" src="https://placehold.co/200x80/ffffff/000000?text=LOGO" alt="Company Logo" class="max-h-12 object-contain grayscale">
+                </div>
+                <h1 id="out_docType" class="text-base font-bold font-mono-receipt tracking-wider mt-1 uppercase border-b-2 border-black pb-2">ใบเบิก SPARE PART</h1>
+            </div>
+          <!-- ข้อมูล Meta ของเอกสาร -->
+            <div class="text-[11px] mb-2 space-y-1 font-mono-receipt font-semibold">
+                <div class="flex justify-between">
+                    <span class="font-sans text-gray-600">Slip No:</span>
+                    <span id="out_slipNo" class="font-bold">REQ-XXXX</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="font-sans text-gray-600">Ticket:</span>
+                    <span id="out_ticketNo">-</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="font-sans text-gray-600">Date:</span>
+                    <span id="out_date">-</span>
+                </div>
+            </div>
+            
+            <div class="border-t border-dashed border-gray-500 my-2"></div>
+          <!-- ข้อมูลบุคคลและโปรเจกต์ -->
+            <div class="text-[11px] mb-2 space-y-1 font-sans">
+                <div class="flex justify-between">
+                    <span class="font-bold w-1/3">ผู้ขอเบิก:</span>
+                    <span id="out_requestor" class="w-2/3 text-right line-clamp-1">-</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="font-bold w-1/3">ผู้จ่าย:</span>
+                    <span id="out_issuer" class="w-2/3 text-right line-clamp-1">-</span>
+                </div>
+                <div class="flex justify-between mt-1">
+                    <span class="font-bold w-1/3">โครงการ:</span>
+                    <span id="out_project" class="w-2/3 text-right line-clamp-2 leading-tight">-</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="font-bold">สาขา:</span>
+                    <span id="out_branch">-</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="font-bold">รุ่นหุ่นยนต์:</span>
+                    <span id="out_robotModel">-</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="font-bold">S/N หุ่นยนต์:</span>
+                    <span id="out_robotSN" class="font-mono-receipt">-</span>
+                </div>
+              <div class="flex justify-between mt-1 text-[10px]">
+                    <span class="text-gray-700">วัตถุประสงค์:</span>
+                    <span id="out_purpose">-</span>
+                </div>
+                <div class="flex justify-between text-[10px]">
+                    <span class="text-gray-700">รับประกัน:</span>
+                    <span id="out_warranty">-</span>
+                </div>
+            </div>
+
+            <div class="border-t-2 border-black my-2"></div>
+           <!-- ส่วนหัวรายการสินค้า -->
+            <div class="flex justify-between font-bold text-[11px] mb-2 pb-1 border-b border-gray-400">
+                <span class="w-3/4 text-left">รายการเบิก (ITEM)</span>
+                <span class="w-1/4 text-right">QTY</span>
+            </div>
+
+            <!-- คอนเทนเนอร์รายการสินค้า -->
+            <div id="out_itemsContainer" class="text-[11px] space-y-2.5 mb-2 font-mono-receipt">
+                <!-- Data will be injected here via JS -->
+            </div>
+
+            <div class="border-t-2 border-black mb-2 mt-3"></div>
+
+            <!-- สรุปยอดรวม -->
+            <div class="flex justify-between font-bold text-sm mb-5">
+                <span>Total Items:</span>
+                <span id="out_totalQty">0 EA</span>
+            </div>
+          <!-- ลายเซ็น -->
+            <div class="flex justify-between text-[9px] mt-6 text-center font-sans">
+                <div class="w-[45%]">
+                    <p class="border-b border-black pb-4 mb-1"></p>
+                    <p>ผู้รับ (Requestor)</p>
+                </div>
+                <div class="w-[45%]">
+                    <p class="border-b border-black pb-4 mb-1"></p>
+                    <p>ผู้จ่าย (Issuer)</p>
+                </div>
+            </div>
+          <!-- ข้อความท้ายบิลและแคปชั่นฮาๆ -->
+            <div class="text-center text-[10px] mt-6 space-y-1 font-sans">
+                <p class="font-bold text-[11px] tracking-wide mb-1">*** THANK YOU ***</p>
+                <p>กรุณาตรวจสอบสินค้าให้ครบถ้วนก่อนออกจากคลัง</p>
+                
+                <div class="bg-gray-100 p-2 my-2 border border-gray-300 border-dashed rounded-sm no-print">
+                    <p id="out_caption" class="italic text-gray-800 font-bold">"..."</p>
+                </div>
+                
+                <!-- QR Code สแกนสถานะ -->
+                <div class="mt-4 flex flex-col items-center justify-center">
+                    <div id="qrcode" class="mb-1 bg-white p-1"></div>
+                    <p class="text-[10px] mt-1 font-mono-receipt font-bold tracking-widest" id="out_qr_slip">SLP-XXXX</p>
+                    <p class="text-[8px] text-gray-500 mt-0.5">สแกนตรวจสอบสถานะ</p>
+                </div>
+            </div>
+
+        </div>
+    </div>
+<div id="toast-container" class="fixed bottom-5 left-5 z-50 flex flex-col gap-2"></div>
+
+    <script>
+        // แคปชั่นฮาๆ สุ่มท้ายบิล
+        const funnyCaptions = [
+            "สู้ชีวิต แต่หุ่นยนต์สู้กลับ! 🤖",
+            "เบิกอะไหล่ไปแล้ว อย่าลืมประกอบกลับให้ครบนะจ๊ะ",
+            "คลังสินค้าพร้อมบริการ บริหารด้วยใจ ❤️",
+            "ซ่อมให้สุด แล้วไปหยุดที่งานงอก 🔧",
+            "เช็กของให้ชัวร์ จะได้ไม่มั่วหน้างาน ✌️",
+            "อะไหล่มีจำกัด โปรดใช้สอยอย่างประหยัด!",
+            "รับของแล้ว รบกวนเซ็นชื่อให้ชื่นใจหน่อย",
+            "ความผิดพลาดคือครู แต่ถ้าพังบ่อยๆ ระวังโดนดุนะ 😅",
+            "งานหลวงไม่ให้ขาด งานซ่อมก็ต้องเป๊ะ!"
+        ];
+
+        let qrcode = null;
+      // ฟังก์ชันสร้าง Toast Notification แทน alert()
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            const bgColor = type === 'error' ? 'bg-red-600' : 'bg-gray-800';
+            const icon = type === 'error' 
+                ? `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-red-300" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" /></svg>`
+                : `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>`;
+
+            toast.className = `${bgColor} text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 transform transition-all duration-300 translate-y-10 opacity-0`;
+            toast.innerHTML = `${icon} <span class="text-sm font-medium">${message}</span>`;
+            
+            container.appendChild(toast);
+           // Animate in
+            setTimeout(() => {
+                toast.classList.remove('translate-y-10', 'opacity-0');
+            }, 10);
+
+            // Animate out and remove
+            setTimeout(() => {
+                toast.classList.add('translate-y-10', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+       // ตั้งค่าเริ่มต้นเมื่อเว็บโหลดเสร็จ
+        document.addEventListener('DOMContentLoaded', () => {
+            // เซ็ตวันที่ปัจจุบันให้ Field Date
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            document.getElementById('in_date').value = now.toISOString().slice(0, 16);
+            
+            setupLogoUpload();
+            generateSlipNo();
+            randomizeCaption();
+            updatePreview();
+        });
+      // อัปโหลดโลโก้และแปลงเป็น Base64 แบบ Real-time
+        function setupLogoUpload() {
+            const input = document.getElementById('logoUpload');
+            input.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    // ตรวจสอบว่าเป็นไฟล์รูปภาพ
+                    if (!file.type.match('image.*')) {
+                        showToast('กรุณาอัปโหลดไฟล์รูปภาพเท่านั้น', 'error');
+                        return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const base64Str = e.target.result;
+                        document.getElementById('logoPreviewForm').src = base64Str;
+                        document.getElementById('out_logo').src = base64Str;
+                        showToast('อัปเดตโลโก้สำเร็จ');
+                    }
+                    reader.readAsDataURL(file);
+                }
+            });
+        }
+       // สุ่มเลข Slip Number อัตโนมัติ
+        function generateSlipNo() {
+            const date = new Date();
+            const dateStr = date.getFullYear().toString().substring(2) + 
+                            String(date.getMonth() + 1).padStart(2, '0') +
+                            String(date.getDate()).padStart(2, '0');
+            const randomNum = Math.floor(1000 + Math.random() * 9000); // 4 digits
+            const newSlip = `REQ-${dateStr}-${randomNum}`;
+            document.getElementById('in_slipNo').value = newSlip;
+            showToast('สร้างเลข Slip No. ใหม่เรียบร้อยแล้ว');
+            updatePreview();
+        }
+      // สุ่มแคปชั่นฮาๆ ท้ายบิล
+        function randomizeCaption() {
+            const randomIndex = Math.floor(Math.random() * funnyCaptions.length);
+            document.getElementById('out_caption').innerText = `"${funnyCaptions[randomIndex]}"`;
+        }
+        
+        // สุ่มใหม่ตอนกดปริ้นต์
+        window.addEventListener('beforeprint', randomizeCaption);
+// เพิ่มรายการสินค้า
+        function addItem() {
+            const container = document.getElementById('itemsContainer');
+            const newRow = document.createElement('div');
+            newRow.className = "item-row grid grid-cols-12 gap-2 bg-white p-3 rounded-xl border border-gray-200 mt-2 relative group transition-all hover:border-indigo-300";
+            newRow.innerHTML = `
+                <div class="col-span-12 md:col-span-5">
+                    <label class="block text-[10px] font-bold text-gray-500 mb-1">ชื่อสินค้า (ITEM NAME)</label>
+                    <input type="text" class="item-name w-full border-gray-300 rounded-md p-2 text-sm focus:ring-indigo-500 focus:border-indigo-500 border" placeholder="ระบุชื่อสินค้า..." oninput="updatePreview()">
+                </div>
+                <div class="col-span-5 md:col-span-3">
+                    <label class="block text-[10px] font-bold text-gray-500 mb-1">รหัส (SKU)</label>
+                    <input type="text" class="item-sku w-full border-gray-300 rounded-md p-2 text-sm font-mono focus:ring-indigo-500 focus:border-indigo-500 border" placeholder="SKU" oninput="updatePreview()">
+                </div>
+                <div class="col-span-4 md:col-span-2">
+                    <label class="block text-[10px] font-bold text-gray-500 mb-1">จุดเก็บ (LOC)</label>
+                    <input type="text" class="item-loc w-full border-gray-300 rounded-md p-2 text-sm font-mono focus:ring-indigo-500 focus:border-indigo-500 border" placeholder="Loc" oninput="updatePreview()">
+                </div>
+                <div class="col-span-3 md:col-span-2">
+                    <label class="block text-[10px] font-bold text-gray-500 mb-1 text-center">จำนวน</label>
+                    <input type="number" class="item-qty w-full border-gray-300 rounded-md p-2 text-sm text-center font-bold focus:ring-indigo-500 focus:border-indigo-500 border" value="1" min="1" oninput="updatePreview()">
+                </div>
+                <button type="button" onclick="removeItem(this)" class="absolute -right-2 -top-2 bg-white hover:bg-red-500 text-red-500 hover:text-white rounded-full p-1.5 shadow-md border border-red-100 transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                </button>
+                 `;
+            container.appendChild(newRow);
+            updatePreview();
+        }
+
+        // ลบรายการสินค้า
+        function removeItem(btn) {
+            const row = btn.closest('.item-row');
+            if(document.querySelectorAll('.item-row').length > 1) {
+                row.remove();
+                updatePreview();
+            } else {
+                showToast('ต้องมีสินค้าอย่างน้อย 1 รายการ', 'error');
+            }
+        }
+       // อัปเดตข้อมูลจาก Form ไปโชว์ใน Receipt แบบ Real-time
+        function updatePreview() {
+            // อัปเดตข้อมูล Text พื้นฐาน
+            document.getElementById('out_docType').innerText = document.getElementById('in_docType').value;
+            const slipNo = document.getElementById('in_slipNo').value || '-';
+            document.getElementById('out_slipNo').innerText = slipNo;
+            document.getElementById('out_ticketNo').innerText = document.getElementById('in_ticketNo').value || '-';
+          // แปลงรูปแบบวันที่
+            const dateVal = document.getElementById('in_date').value;
+            if(dateVal) {
+                const d = new Date(dateVal);
+                const formatted = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+                document.getElementById('out_date').innerText = formatted;
+            } else {
+                document.getElementById('out_date').innerText = '-';
+            }
+           // ข้อมูลบุคคลและโปรเจกต์
+            document.getElementById('out_requestor').innerText = document.getElementById('in_requestor').value || '....................';
+            document.getElementById('out_issuer').innerText = document.getElementById('in_issuer').value || '....................';
+            document.getElementById('out_project').innerText = document.getElementById('in_project').value || '-';
+            document.getElementById('out_branch').innerText = document.getElementById('in_branch').value || '-';
+            document.getElementById('out_robotModel').innerText = document.getElementById('in_robotModel').value || '-';
+            document.getElementById('out_robotSN').innerText = document.getElementById('in_robotSN').value || '-';
+            document.getElementById('out_purpose').innerText = document.getElementById('in_purpose').value || '-';
+            document.getElementById('out_warranty').innerText = document.getElementById('in_warranty').value || '-';
+          // อัปเดตรายการสินค้าทั้งหมด
+            const itemsContainer = document.getElementById('out_itemsContainer');
+            itemsContainer.innerHTML = ''; // ล้างของเก่า
+            let totalQty = 0;
+
+            const rows = document.querySelectorAll('.item-row');
+            rows.forEach((row, index) => {
+                const name = row.querySelector('.item-name').value || 'ไม่ระบุชื่อสินค้า';
+                const sku = row.querySelector('.item-sku').value || '-';
+                const loc = row.querySelector('.item-loc').value || '-';
+                const qty = parseInt(row.querySelector('.item-qty').value) || 0;
+                totalQty += qty;
+               const itemHtml = `
+                    <div class="mb-2">
+                        <div class="flex justify-between font-sans">
+                            <span class="w-5/6 pr-1 leading-tight">${index + 1}. ${name}</span>
+                            <span class="w-1/6 text-right font-bold whitespace-nowrap">${qty} EA</span>
+                        </div>
+                        <div class="text-[9px] text-gray-600 flex justify-between leading-none mt-1 pl-3">
+                            <span>SKU: ${sku}</span>
+                            <span>Loc: ${loc}</span>
+                        </div>
+                    </div>
+                `;
+                itemsContainer.insertAdjacentHTML('beforeend', itemHtml);
+            });
+          // อัปเดตยอดรวม
+            document.getElementById('out_totalQty').innerText = `${totalQty} EA`;
+
+            // อัปเดต QR Code และข้อความใต้ QR
+            document.getElementById('out_qr_slip').innerText = slipNo;
+            generateQRCode(slipNo !== '-' ? slipNo : 'RAAS-PAL');
+        }
+
+        // ฟังก์ชันสร้าง QR Code จากข้อความ
+        function generateQRCode(text) {
+            const qrContainer = document.getElementById('qrcode');
+            qrContainer.innerHTML = ''; // เคลียร์รูปเก่า
+           try {
+                qrcode = new QRCode(qrContainer, {
+                    text: text,
+                    width: 64,  // ขนาดเล็กเหมาะสำหรับบิล 80mm
+                    height: 64,
+                    colorDark : "#000000",
+                    colorLight : "#ffffff",
+                    correctLevel : QRCode.CorrectLevel.M
+                });
+            } catch (e) {
+                console.error("QR Code Error:", e);
+            }
+        }
+    </script>
+</body>
+</html>
